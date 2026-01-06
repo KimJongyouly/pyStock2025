@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Stocker::{{ info.corp_name }}</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body { font-family: 'Noto Sans KR', sans-serif; background: #f8f9fa; margin: 0; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; background: white; border: 1px solid #ddd; padding: 25px; position: relative; min-height: 700px; }
+        .header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
+        .header-left { display: flex; align-items: baseline; }
+        #btn-my-stock { margin-left: 20px; text-decoration: none; color: #000; font-size: 14px; font-weight: bold;
+                        padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; }
+        .main-content { display: flex; gap: 25px; }
+        .chart-section { flex: 3; }
+        .info-section { flex: 1; border-left: 1px solid #eee; padding-left: 25px; }
+        .chart-controls { display: flex; justify-content: flex-end; gap: 15px; margin-bottom: 15px; border-bottom: 1px solid #eee; }
+        .chart-controls a { text-decoration: none; color: #666; font-size: 14px; padding-bottom: 5px; font-weight: bold; }
+        .active { color: #00c73c !important; border-bottom: 2px solid #00c73c; }
+        .my-stock-active { color: #ff4c4c !important; }
+        .info-table { width: 100%; border-collapse: collapse; }
+        .info-table th, .info-table td { padding: 12px 0; border-bottom: 1px solid #f4f4f4; font-size: 14px; }
+        .info-table th { text-align: left; color: #888; font-weight: normal; }
+        .info-table td { text-align: right; font-weight: bold; }
+        .price-up { color: #ff4c4c; } .price-down { color: #1261ff; }
+
+        /* 검색창 스타일 */
+        .search-container { position: relative; }
+        #search-input { width: 250px; padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        #search-results { display: none; position: absolute; top: 100%; left: 0; right: 0; border: 1px solid #ddd; background: white;
+                          z-index: 10; max-height: 300px; overflow-y: auto; }
+        #search-results a { display: block; padding: 10px; text-decoration: none; color: #333; font-size: 13px; }
+        #search-results a:hover, #search-results a.search-selected { background-color: #f5f5f5; }
+
+
+        /* 로딩 레이어 스타일 */
+        #loading-layer { position: absolute; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.85);
+                         display:flex; flex-direction:column; justify-content:center; align-items:center; z-index:1000; transition: opacity 0.3s; }
+        .spinner { width:50px; height:50px; border:5px solid #f3f3f3; border-top:5px solid #00c73c; border-radius:50%; animation:spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* 플래시 메시지 스타일 */
+        #flash-container { position: fixed; top: 20px; right: 20px; z-index: 2000; width: 300px; }
+        .flash-message { padding: 15px; margin-bottom: 10px; border-radius: 4px; color: #fff; opacity: 0.9;
+                         transition: opacity 0.5s ease-out; }
+        .flash-message.success { background-color: #28a745; }
+        .flash-message.info { background-color: #17a2b8; }
+    </style>
+</head>
+<body>
+<div id="flash-container"></div>
+<div class="container">
+    <div id="loading-layer">
+        <div class="spinner"></div>
+        <p style="margin-top:15px; font-weight:bold; color:#555;">데이터 분석 중...</p>
+    </div>
+
+    <div class="header">
+        <div class="header-left">
+            <h1>{{ info.corp_name }}</h1><span style="margin-left:12px; color:#888; font-size: 1.2rem;">{{ ticker }}</span>
+            <a href="#" id="btn-my-stock" data-ticker="{{ ticker }}">MY+/-</a>
+        </div>
+        <div class="search-container">
+            <input type="text" id="search-input" placeholder="종목코드 또는 회사명 검색" autocomplete="off">
+            <div id="search-results"></div>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="chart-section">
+            <div class="chart-controls">
+                <a href="?ticker={{ticker}}&interval=D&start={{start}}&end={{end}}" id="btn-D">일봉</a>
+                <a href="?ticker={{ticker}}&interval=W&start={{start}}&end={{end}}" id="btn-W">주봉</a>
+                <a href="?ticker={{ticker}}&interval=M&start={{start}}&end={{end}}" id="btn-M">월봉</a>
+                <a href="#" id="btn-forecast" style="color: #007bff;">예측</a>
+            </div>
+            <div id="chart"></div>
+        </div>
+        <div class="info-section">
+            <h3 style="margin-top:0; border-bottom: 1px solid #333; padding-bottom: 5px;">투자정보</h3>
+            <table class="info-table">
+                <tr><th>시가총액</th><td>{{ "{:,.0f}".format(info.market_cap) }}억</td></tr>
+                <tr><th>상장주식수</th><td>{{ info.stock_issue }}</td></tr>
+                <tr><th>시가총액순위</th><td>{{ info.stock_rank }} 위</td></tr>
+                <tr><th>52주 최고</th><td class="price-up">{{ "{:,.0f}".format(info.high_52w) }}</td></tr>
+                <tr><th>52주 최저</th><td class="price-down">{{ "{:,.0f}".format(info.low_52w) }}</td></tr>
+                <tr><th>PER</th><td>{{ "%.2f"|format(info.per|float) }}배</td></tr>
+                <tr><th>PBR</th><td>{{ "%.2f"|format(info.pbr|float) }}배</td></tr>
+            </table>
+        </div>
+    </div>
+    <div style="position: absolute; bottom: 25px; right: 25px;">
+        <a href="/logout" style="text-decoration: none; color: #fff; background-color: #6c757d; padding: 8px 15px; border-radius: 5px; font-size: 14px;">로그아웃</a>
+    </div>
+</div>
+
+<script>
+    var graphs = {{ graphJSON | safe }};
+    Plotly.newPlot('chart', graphs.data, graphs.layout, {responsive: true, displayModeBar: false}).then(() => {
+        const loader = document.getElementById('loading-layer');
+        loader.style.opacity = '0';
+        setTimeout(() => loader.style.display = 'none', 300);
+    });
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const chartType = urlParams.get('interval') || 'D';
+    document.getElementById('btn-' + chartType).classList.add('active');
+
+    document.querySelectorAll('.chart-controls a').forEach(a => {
+        a.addEventListener('click', () => {
+            const loader = document.getElementById('loading-layer');
+            loader.style.display = 'flex';
+            loader.style.opacity = '1';
+        });
+    });
+
+    const searchInput = document.getElementById('search-input');
+    const searchResults = document.getElementById('search-results');
+    let selectedIndex = -1;
+
+    function updateSelection(items) {
+        items.forEach((item, index) => {
+            if (index === selectedIndex) {
+                item.classList.add('search-selected');
+            } else {
+                item.classList.remove('search-selected');
+            }
+        });
+    }
+
+    searchInput.addEventListener('keyup', function(e) {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') {
+            return;
+        }
+        const term = this.value;
+        if (term.length < 2) {
+            searchResults.style.display = 'none';
+            return;
+        }
+
+        fetch(`/search?term=${term}`)
+            .then(response => response.json())
+            .then(data => {
+                searchResults.innerHTML = '';
+                selectedIndex = -1;
+                if (data.length > 0) {
+                    data.forEach((item, index) => {
+                        const link = document.createElement('a');
+                        link.href = `/stock_index?ticker=${item.code}`;
+                        link.textContent = `${item.name}: ${item.code}`;
+                        link.addEventListener('mouseover', () => {
+                            selectedIndex = index;
+                            updateSelection(searchResults.querySelectorAll('a'));
+                        });
+                        searchResults.appendChild(link);
+                    });
+                    searchResults.style.display = 'block';
+                } else {
+                    searchResults.style.display = 'none';
+                }
+            });
+    });
+
+    searchInput.addEventListener('keydown', function(e) {
+        const items = searchResults.querySelectorAll('a');
+        if (items.length === 0) return;
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            selectedIndex = (selectedIndex + 1) % items.length;
+            updateSelection(items);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            selectedIndex = (selectedIndex - 1 + items.length) % items.length;
+            updateSelection(items);
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (selectedIndex > -1) {
+                window.location.href = items[selectedIndex].href;
+            }
+        }
+    });
+
+    document.addEventListener('click', function(event) {
+        if (!searchInput.contains(event.target)) {
+            searchResults.style.display = 'none';
+        }
+    });
+
+    const myStockBtn = document.getElementById('btn-my-stock');
+    const ticker = myStockBtn.dataset.ticker;
+
+    function showFlashMessage(message, isConcern) {
+        const container = document.getElementById('flash-container');
+        const flashDiv = document.createElement('div');
+        flashDiv.className = `flash-message ${isConcern ? 'success' : 'info'}`;
+        flashDiv.textContent = message;
+
+        container.appendChild(flashDiv);
+
+        setTimeout(() => {
+            flashDiv.style.opacity = '0';
+            setTimeout(() => container.removeChild(flashDiv), 500);
+        }, 3000);
+    }
+
+    function updateMyStockButtonState(ticker, buttonElement) {
+        fetch(`/my_stock_concern/${ticker}?check=true`, {
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+            .then(response => {
+                if (response.status === 401) {
+                    window.location.href = '/login';
+                    return Promise.reject('Unauthorized');
+                }
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.is_concerned) {
+                    buttonElement.classList.add('my-stock-active');
+                } else {
+                    buttonElement.classList.remove('my-stock-active');
+                }
+            })
+            .catch(error => {
+                if (error !== 'Unauthorized') {
+                    console.error('Error checking stock status:', error);
+                }
+            });
+    }
+
+    myStockBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        const buttonElement = this;
+        const currentTicker = buttonElement.dataset.ticker;
+
+        const wasActive = buttonElement.classList.contains('my-stock-active');
+        buttonElement.classList.toggle('my-stock-active');
+
+        fetch(`/my_stock_concern/${currentTicker}`, {
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+        .then(response => {
+            if (response.status === 401) {
+                window.location.href = '/login';
+                return Promise.reject('Unauthorized');
+            }
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            buttonElement.classList.toggle('my-stock-active', data.is_concerned);
+            showFlashMessage(data.message, data.is_concerned);
+        })
+        .catch(error => {
+            if (error !== 'Unauthorized') {
+                console.error('Error toggling stock:', error);
+                buttonElement.classList.toggle('my-stock-active', wasActive);
+                showFlashMessage('관심종목 변경에 실패했습니다.', false);
+            }
+        });
+    });
+
+    // Initial check on page load
+    updateMyStockButtonState(ticker, myStockBtn);
+
+    const forecastBtn = document.getElementById('btn-forecast');
+    forecastBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+
+        const loader = document.getElementById('loading-layer');
+        const loaderText = loader.querySelector('p');
+
+        // Show loader with a specific message
+        loaderText.textContent = 'LSTM 모델을 훈련하고 예측하는 중... (시간이 걸릴 수 있습니다)';
+        loader.style.display = 'flex';
+        loader.style.opacity = '1';
+
+        const currentTicker = '{{ ticker }}'; // Get ticker from template variable
+
+        fetch(`/forecast/${currentTicker}`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                const forecastTrace = {
+                    x: data.dates,
+                    y: data.prices,
+                    mode: 'lines',
+                    name: 'Forecast',
+                    line: {
+                        color: '#ff7f0e', // A distinct orange color
+                        dash: 'dot'
+                    }
+                };
+
+                Plotly.addTraces('chart', forecastTrace);
+
+                // Hide loader
+                loader.style.opacity = '0';
+                setTimeout(() => {
+                    loader.style.display = 'none';
+                    loaderText.textContent = '데이터 분석 중...'; // Reset text
+                }, 300);
+            })
+            .catch(error => {
+                console.error('Error fetching forecast data:', error);
+                alert('예측 데이터를 가져오는 데 실패했습니다. 콘솔을 확인해주세요.');
+                // Hide loader on error
+                loader.style.opacity = '0';
+                setTimeout(() => {
+                    loader.style.display = 'none';
+                    loaderText.textContent = '데이터 분석 중...'; // Reset text
+                }, 300);
+            });
+    });
+</script>
+</body>
+</html>
